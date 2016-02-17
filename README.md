@@ -1,2 +1,48 @@
 # packet-block-storage
-Packet.net block storage utilities
+
+----
+## Quick overview
+This utility/helper script is made available to assist in  the attachment and detachment of Packet block storage volumes and is currently in testing. Use at your own risk and always have a backup/snapshot just in case!
+
+# Features
+* Attach block storage block devices
+* Detach block storage block devices
+* Configure multipath for HA
+* Validate block device creation
+
+# Dependancies
+
+**Ubuntu**:
+
+    apt-get install open-iscsi multipath-tools    
+
+
+**CentOS**:
+
+    yum -y install iscsi-initiator-utils device-mapper-multipath
+
+## Usage
+
+**Attach a volume**
+
+1. Create a volume under the Storage tab in your Packet.net portal account
+2. Click on the storage volume, select the server you wish to attach the volume to and click on Attach.
+3. Execute packet-block-storage-attach from within the OS on the server in question
+
+Example:
+
+    [root@cent7-pbs-client dlaube]# packet-block-storage-attach
+    Block device /dev/mapper/volume-9ab99df5 is available for use
+    Block device /dev/mapper/volume-7eab8fc1 is available for use
+
+
+**Detach a volume**
+
+1. Unmount the filesystem on the on any block storage volume that may be in use.
+2. Execute packet-block-storage-detach from within the OS on the server in question
+
+Example:
+
+    [root@cent7-pbs-client dlaube]# packet-block-storage-detach
+
+
