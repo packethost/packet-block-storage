@@ -14,7 +14,7 @@ This utility/helper script is made available to assist in  the attachment and de
 
 **Ubuntu**:
 
-    apt-get install open-iscsi multipath-tools    
+    apt-get install open-iscsi multipath-tools
 
 
 **CentOS**:
@@ -28,16 +28,15 @@ This utility/helper script is made available to assist in  the attachment and de
 1. Create a volume under the Storage tab in your Packet.net portal account
 2. Click on the storage volume, select the server you wish to attach the volume to and click on Attach.
 3. Execute packet-block-storage-attach from within the OS on the server in question
+4. Partition the block device at /dev/mapper/\{volume\_name\_here\} disk using parted, fdisk, etc
+5. Make a filesystem on the block device
+6. Mount the block device on the mount point of you choice
 
 Example:
 
     [root@cent7-pbs-client dlaube]# packet-block-storage-attach
     Block device /dev/mapper/volume-9ab99df5 is available for use
     Block device /dev/mapper/volume-7eab8fc1 is available for use
-
-4. Partition the block device at /dev/mapper/{volume_name_here} disk using parted, fdisk, etc
-5. Make a filesystem on the block device
-6. Mount the block device on the mount point of you choice
 
 **Detach a volume**
 
@@ -48,5 +47,4 @@ Example:
 Example:
 
     [root@cent7-pbs-client dlaube]# packet-block-storage-detach
-
 
