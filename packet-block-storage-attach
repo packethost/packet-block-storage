@@ -51,7 +51,7 @@ fi
 
 # Initiator check
 if [ ! `grep $initiator\$ /etc/iscsi/initiatorname.iscsi` ]; then
-	echo "Initiator name mismatch! Updating from metadata..."
+	[ $_V -eq 1 ] && echo "Initiator name mismatch! Updating from metadata..."
 	echo "InitiatorName=$initiator" > /etc/iscsi/initiatorname.iscsi
 	# Restart iscsid since it will have cached the previous initiator IQN
 	restart_iscsid
