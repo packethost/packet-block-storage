@@ -1,0 +1,173 @@
+#!/bin/bash
+# Packet.net block storage auto-attach - dlaube
+
+# Get cli options
+_V=0
+while getopts "v" OPTION
+do
+  case $OPTION in
+    v) _V=1
+       ;;
+  esac
+done
+
+# Depends on jq
+if [ ! `which jq` ]; then
+	echo "JQ was not found. Installing..."
+	wget --quiet -O /bin/jq https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 && chmod +x /bin/jq
+fi
+
+# Check for deps
+for dep in iscsiadm multipath jq;
+do
+	if type $dep &>/dev/null; then
+		break
+	else
+		echo "Error: $dep not found. Please install it first."
+		exit 1
+	fi
+done
+
+export LOCALMD=/tmp/metadata.tmp
+curl -sSL https://metadata.packet.net/metadata > $LOCALMD
+volumecnt=`jq '.volumes[].iqn' $LOCALMD | wc -l`
+initiator=`jq '.iqn' $LOCALMD | sed 's/"//g'`
+
+# Check for volumes
+if [ $volumecnt -lt "1" ]; then
+	echo "Error: No volume(s) associated with this server.\nHave you attached a volume to this server via the Packet.net API/Portal?"
+	exit 1
+fi
+
+function restart_iscsid {
+if [[ -f /usr/bin/systemctl && `systemctl` =~ -\.mount ]]; then
+        [ $_V -eq 1 ] && echo "Restarting iscsid with systemctl"
+        systemctl restart iscsid &>/dev/null
+elif [[ -f /etc/init.d/open-iscsi && ! -h /etc/init.d/open-iscsi ]]; then
+        [ $_V -eq 1 ] && echo "Restarting iscsid with sysv init"
+        /etc/init.d/open-iscsi restart &>/dev/null
+fi
+}
+
+# Initiator check
+if [ ! `grep $initiator\$ /etc/iscsi/initiatorname.iscsi` ]; then
+	echo "Initiator name mismatch! Updating from metadata..."
+	echo "InitiatorName=$initiator" > /etc/iscsi/initiatorname.iscsi
+	# Restart iscsid since it will have cached the previous initiator IQN
+	restart_iscsid
+fi
+
+# Iscsid config check
+# Fix for Ubuntu/Debian since they default to manual
+sed -i.bak 's/node.startup = manual/node.startup = automatic/g' /etc/iscsi/iscsid.conf
+# Adjust timeout settings for decreased queue time during failover
+# Adjust for Ubuntu/Debian specific defaults
+sed -i.bak 's/node.session.timeo.replacement_timeout = 120/node.session.timeo.replacement_timeout = 5/g' /etc/iscsi/iscsid.conf
+# Adjust for RHEL/CentOS specific defaults
+sed -i.bak 's/node.session.timeo.replacement_timeout = 15/node.session.timeo.replacement_timeout = 5/g' /etc/iscsi/iscsid.conf
+sed -i.bak 's/node.conn\[0\].timeo.noop_out_interval = 5/node.conn\[0\].timeo.noop_out_interval = 3/g' /etc/iscsi/iscsid.conf
+sed -i.bak 's/node.conn\[0\].timeo.noop_out_timeout = 5/node.conn\[0\].timeo.noop_out_timeout = 3/g' /etc/iscsi/iscsid.conf
+# Restart iscsid since it will have old config values stored
+restart_iscsid
+
+# Discover and login
+for (( volume=0; volume<$volumecnt; volume++ ))
+do
+	iqn=`jq '.volumes['$volume'].iqn ' $LOCALMD | sed 's/"//g'`
+	portals=`jq '.volumes['$volume'].ips ' $LOCALMD | egrep -o '([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}'`
+	volname=`jq '.volumes['$volume'].name ' $LOCALMD | sed 's/"//g'`
+
+	for portal in ${portals[@]}
+	do
+		# Discover
+	        if iscsiadm --mode discovery --type sendtargets --portal $portal --discover &>/dev/null ; then
+	        	[ $_V -eq 1 ] && echo "Discovery success on $portal"
+		else
+			echo "Error: We couldn't discover targets on $portal"
+		fi
+
+		# Login and attach
+		if iscsiadm --mode node --targetname $iqn --portal $portal --login &>/dev/null ; then
+	               	[ $_V -eq 1 ] && echo "Logged in iqn $iqn"
+			sleep 1
+			bdname=`ls -l /dev/disk/by-path/ | grep "$iqn" | grep $portal | awk {'print $11'} | sed 's/..\/..\///'`
+			wwid=`/lib/udev/scsi_id -g -u -d /dev/"$bdname"`
+			[ $_V -eq 1 ] && echo "Block device $bdname aka $volname is mapped to $iqn with WWID $wwid"
+
+			if grep "$volname $wwid" /etc/multipath/bindings &>/dev/null ; then
+				[ $_V -eq 1 ] && echo "Alias WWID already configured in multipath. Skipping..."
+			else
+				echo "$volname $wwid" >> /etc/multipath/bindings
+			fi
+
+			if grep "mpath[0-9] $wwid" /etc/multipath/bindings &>/dev/null ; then
+				[ $_V -eq 1 ] && echo "Default mpath detected. Removing..."
+				sed -i.bak -n '/mpath[0-9] '$wwid'/!p' /etc/multipath/bindings
+			fi
+
+	       	else
+	                echo "Error: We couldn't not log in iqn $iqn"
+        	fi
+	done
+done
+
+# create the multipath config
+cat << 'EOF_mpconf' > /etc/multipath.conf
+defaults {
+
+       polling_interval       3
+       fast_io_fail_tmo 5
+       path_selector              "round-robin 0"
+       rr_min_io                    100
+       rr_weight                    priorities
+       failback                    immediate
+       no_path_retry              fail
+       user_friendly_names     yes
+
+}
+
+blacklist {
+         devnode "^(ram|sda|sdb|raw|loop|fd|md|dm-|sr|scd|st)[0-9]*"
+         devnode "^hd[a-z][[0-9]*]"
+         devnode "^vd[a-z]"
+         devnode "^cciss!c[0-9]d[0-9]*[p[0-9]*]"
+}
+
+devices {
+        device {
+                vendor "DATERA"
+                product "IBLOCK"
+                path_grouping_policy group_by_prio
+                path_checker tur
+                #checker_timer 5
+                #prio_callout "/sbin/mpath_prio_alua /dev/%n"
+                hardware_handler "1 alua"
+        }
+}
+EOF_mpconf
+
+
+# Run multipath
+if [[ -f /usr/bin/systemctl && `systemctl` =~ -\.mount ]]; then
+	[ $_V -eq 1 ] && echo "Restarting multipath with systemctl"
+	systemctl restart multipathd &>/dev/null
+elif [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
+	[ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
+	/etc/init.d/multipath-tools restart &>/dev/null
+fi
+
+sleep 5
+multipath &>/dev/null; sleep 2; mpresult=`multipath -ll`
+[ $_V -eq 1 ] && echo "$mpresult"
+
+# Check for block device(s)
+for (( volume=0; volume<$volumecnt; volume++ ))
+do
+        volname=`jq '.volumes['$volume'].name ' $LOCALMD | sed 's/"//g'`
+	if [ -b /dev/mapper/$volname ]; then
+		echo "Block device /dev/mapper/$volname is available for use"
+	else
+		echo "Error: Block device /dev/mapper/$volname is NOT available for use"
+	fi
+done
+

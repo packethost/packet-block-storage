@@ -1,0 +1,14 @@
+#!/bin/bash
+
+for iqn in `iscsiadm -m session | awk {'print $4'}`; do
+	portal=`iscsiadm -m session | grep $iqn | awk {'print $3'} | egrep -o '([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}'`
+	echo "Logging out $iqn on $portal"
+	iscsiadm --mode node --targetname $iqn --portal $portal --logout
+done
+
+rm -rf /var/lib/iscsi/send_targets/*
+rm -rf /var/lib/iscsi/nodes/*
+
+echo "Flushing multipath device maps..."
+sleep 2
+multipath -fF
