@@ -10,7 +10,7 @@ This utility/helper script is made available to assist in  the attachment and de
 * Configure multipath for HA
 * Validate block device creation
 
-# Dependancies
+# Dependencies
 
 **Ubuntu**:
 
@@ -35,11 +35,15 @@ Example:
     Block device /dev/mapper/volume-9ab99df5 is available for use
     Block device /dev/mapper/volume-7eab8fc1 is available for use
 
+4. Partition the block device at /dev/mapper/{volume_name_here} disk using parted, fdisk, etc
+5. Make a filesystem on the block device
+6. Mount the block device on the mount point of you choice
 
 **Detach a volume**
 
-1. Unmount the filesystem on any block storage volume that may be in use.
+1. Unmount the filesystem on any block storage volume that may be in use
 2. Execute packet-block-storage-detach from within the OS on the server in question
+3. Click on the storage volume from the storage tab within your Packet.net project and click on Detach
 
 Example:
 
