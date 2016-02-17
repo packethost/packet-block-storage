@@ -38,7 +38,7 @@ Example:
 
 **Detach a volume**
 
-1. Unmount the filesystem on the on any block storage volume that may be in use.
+1. Unmount the filesystem on any block storage volume that may be in use.
 2. Execute packet-block-storage-detach from within the OS on the server in question
 
 Example:
