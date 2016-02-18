@@ -35,7 +35,7 @@ initiator=`jq '.iqn' $LOCALMD | sed 's/"//g'`
 
 # Check for volumes
 if [ $volumecnt -lt "1" ]; then
-	echo "Error: No volume(s) associated with this server.\nHave you attached a volume to this server via the Packet.net API/Portal?"
+	echo "Error: No volume(s) associated with this server. Have you attached a volume to this server via the Packet.net API/Portal?"
 	exit 1
 fi
 
