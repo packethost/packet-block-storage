@@ -166,7 +166,12 @@ elif [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; t
 	/etc/init.d/multipath-tools restart &>/dev/null
 fi
 
-sleep 5
+# Restart multipath with sysv init to fix ubuntu/deb
+if [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
+        [ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
+        /etc/init.d/multipath-tools restart &>/dev/null
+fi
+sleep 2
 multipath &>/dev/null; sleep 2; mpresult=`multipath -ll`
 [ $_V -eq 1 ] && echo "$mpresult"
 
