@@ -21,6 +21,24 @@ This utility/helper script is made available to assist in  the attachment and de
 
     yum -y install iscsi-initiator-utils device-mapper-multipath
 
+## Installation
+
+**Using git:**
+
+    sudo su -
+    git clone git@github.com:packethost/packet-block-storage.git
+    cp ./packet-block-storage/packet-block-storage-* /usr/bin/
+    chmod u+x /usr/bin/packet-block-storage-*
+
+**or**
+
+**Using wget**
+
+    sudo su -
+    wget -O /usr/bin/packet-block-storage-attach https://raw.githubusercontent.com/packethost/packet-block-storage/master/packet-block-storage-attach
+    wget -O /usr/bin/packet-block-storage-detach https://raw.githubusercontent.com/packethost/packet-block-storage/master/packet-block-storage-detach
+    chmod u+x /usr/bin/packet-block-storage-*
+
 ## Usage
 
 **Attach a volume**
