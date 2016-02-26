@@ -91,7 +91,7 @@ do
 	               	[ $_V -eq 1 ] && echo "Logged in iqn $iqn"
 			sleep 1
 			bdname=`ls -l /dev/disk/by-path/ | grep "$iqn" | grep $portal | awk {'print $11'} | sed 's/..\/..\///'`
-			wwid=`/lib/udev/scsi_id -g -u -d /dev/"$bdname"`
+			wwid=`/lib/udev/scsi_id -g -u -d /dev/$bdname`
 			[ $_V -eq 1 ] && echo "Block device $bdname aka $volname is mapped to $iqn with WWID $wwid"
 
 			if grep "$volname $wwid" /etc/multipath/bindings &>/dev/null ; then
