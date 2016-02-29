@@ -12,7 +12,7 @@ This utility/helper script is made available to assist in  the attachment and de
 
 # Dependencies
 
-**Ubuntu**:
+**Ubuntu/Debian**:
 
     apt-get install open-iscsi multipath-tools
 
