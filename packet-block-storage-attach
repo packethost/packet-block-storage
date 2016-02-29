@@ -134,12 +134,12 @@ blacklist {
 
          device {
                vendor  "Micron"
-               product "*"
+               product ".*"
          }
 
          device {
                vendor  "Intel"
-               product "*"
+               product ".*"
          }
 }
 
