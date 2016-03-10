@@ -106,7 +106,7 @@ do
 			fi
 
 	       	else
-	                echo "Error: We couldn't not log in iqn $iqn"
+	                echo "Error: We couldn't log in iqn $iqn"
         	fi
 	done
 done
