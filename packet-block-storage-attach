@@ -141,6 +141,11 @@ blacklist {
                vendor  "Intel"
                product ".*"
          }
+
+         device {
+               vendor  "DELL"
+               product ".*"
+         }
 }
 
 devices {
