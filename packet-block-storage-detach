@@ -1,14 +1,82 @@
 #!/bin/bash
 
-for iqn in `iscsiadm -m session | awk {'print $4'}`; do
-	portal=`iscsiadm -m session | grep $iqn | awk {'print $3'} | egrep -o '([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}'`
-	echo "Logging out $iqn on $portal"
-	iscsiadm --mode node --targetname $iqn --portal $portal --logout
+usage(){
+  echo "usage: $0 [-h] [volume_name]"
+	echo "	-h		display help"
+	echo "	volume_name	specify the volume name to detach, eg: volume-f9a8a263"
+	exit 1
+}
+
+while getopts "h" OPTION
+do
+  case $OPTION in
+    h) usage
+       ;;
+  esac
 done
 
-rm -rf /var/lib/iscsi/send_targets/*
-rm -rf /var/lib/iscsi/nodes/*
+shift $(($OPTIND - 1))
+if [ $1 ] ; then
+	target=$1
+fi
 
-echo "Flushing multipath device maps..."
-sleep 2
-multipath -fF
+function detach_volume () {
+  if [ -z "$1" ]
+  then
+    echo "Error: no iqn passed to detach_volume () function"
+		exit
+  fi
+
+  if [ -z "$2" ]
+  then
+    echo "Error: no volume name passed to detach_volume () function"
+		exit
+  fi
+
+  iqntarget="$1"
+  volname="$2"
+	for iqn in `iscsiadm -m session | awk {'print $4'}`; do
+		if [ "$iqntarget" = "$iqn" ] ; then
+			portal=`iscsiadm -m session | grep $iqn | awk {'print $3'} | egrep -o '([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}'`
+			echo "Logging out $iqn on $portal"
+			iscsiadm --mode node --targetname $iqn --portal $portal --logout
+			sed -i "/^$volname.*/d" /etc/multipath/bindings
+			multipath -f $volname 
+		fi
+	done
+}
+
+export LOCALMD=/tmp/metadata.tmp
+curl -sSL https://metadata.packet.net/metadata > $LOCALMD
+volumecnt=`jq '.volumes[].iqn' $LOCALMD | wc -l`
+
+# cleanup mpath entries in bindings file
+sed -i "/^mpath.*/d" /etc/multipath/bindings
+if [ `ls /dev/mapper/mpath* >/dev/null 2>/dev/null` ]; then
+  [ $_V -eq 1 ] && echo "mpath volume entries found, cleaning up"
+	for i in `ls /dev/mapper/mpath* | cut -d / -f4`; do
+		multipath -f $i
+	done
+fi
+
+for (( idx=0; idx<$volumecnt; idx++ )); do
+	volname=`jq '.volumes['$idx'].name ' $LOCALMD | sed 's/"//g'`
+	if [ "$target" ] ; then
+		if [ "$volname" = "$target" ] ; then
+  		iqn=`jq '.volumes['$idx'].iqn ' $LOCALMD | sed 's/"//g'`
+	  	detach_volume $iqn $volname
+			continue
+		fi
+  else
+		iqn=`jq '.volumes['$idx'].iqn ' $LOCALMD | sed 's/"//g'`
+		detach_volume $iqn $volname
+	fi
+done
+
+# debian / centos
+#rm -rf /var/lib/iscsi/send_targets/*
+#rm -rf /var/lib/iscsi/nodes/*
+
+#ubuntu
+#rm -rf /etc/iscsi/send_targets/*
+#rm -rf /etc/iscsi/nodes/*
