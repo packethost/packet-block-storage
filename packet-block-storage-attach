@@ -192,7 +192,7 @@ function attach_volume () {
 			wwid=`/lib/udev/scsi_id -g -u -d /dev/$bdname`
 			[ $_V -eq 1 ] && echo "Block device $bdname aka $volname is mapped to $iqn with WWID $wwid"
 
-			[ $_V -eq 1 ] && echo "updating /etc/multipath/bindings wtih $volname $wwid"
+			[ $_V -eq 1 ] && echo "updating /etc/multipath/bindings with $volname $wwid"
 			if `grep -q "^$volname" /etc/multipath/bindings`; then
 				sed -i "s/^$volname .*/$volname $wwid/" /etc/multipath/bindings
 			else
@@ -217,11 +217,12 @@ fi
 
 # cleanup mpath entries in bindings file
 sed -i "/^mpath.*/d" /etc/multipath/bindings
-if [ `ls /dev/mapper/mpath* >/dev/null 2>/dev/null` ]; then
+if `ls /dev/mapper/mpath* >/dev/null 2>/dev/null`; then
   [ $_V -eq 1 ] && echo "mpath volume entries found, cleaning up"
-	for i in `ls /dev/mapper/mpath* | cut -d / -f4`; do
-		multipath -f $i
-	done
+  for i in `ls /dev/mapper/mpath* | cut -d / -f4`; do
+    multipath -f $i
+  done
+  multipath
 fi
 
 mpresult=`multipath -ll`
