@@ -43,6 +43,31 @@ do
 	fi
 done
 
+# Check for multipath support
+lsmod | grep dm_multipath &>/dev/null
+if [ $? == 0 ]; then
+  [ $_V -eq 1 ] && echo "Multipath module is loaded."
+else
+        [ $_V -eq 1 ] && echo "Multipath module not yet loaded. Restarting service."
+        # Run multipath
+        if [[ -f /usr/bin/systemctl && `systemctl` =~ -\.mount ]]; then
+                [ $_V -eq 1 ] && echo "Restarting multipath with systemctl"
+		modprobe dm_multipath
+		modprobe dm_round_robin
+                systemctl restart multipathd
+                systemctl enable multipathd
+        elif [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
+                [ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
+                /etc/init.d/multipath-tools restart &>/dev/null
+        fi
+
+        # Restart multipath with sysv init to fix ubuntu/deb
+        if [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
+                [ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
+                /etc/init.d/multipath-tools restart &>/dev/null
+        fi
+fi
+
 export LOCALMD=/tmp/metadata.tmp
 curl -sSL https://metadata.packet.net/metadata > $LOCALMD
 volumecnt=`jq '.volumes[].iqn' $LOCALMD | wc -l`
