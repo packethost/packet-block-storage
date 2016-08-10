@@ -168,11 +168,11 @@ fi
 
 # iscsid config check - fix for Ubuntu/Debian since they default to manual
 iscsiconf="/etc/iscsi/iscsid.conf"
-if [ `grep -q 'node.startup = manual' "$iscsiconf"` ] || \
-   [ `grep -q 'node.session.timeo.replacement_timeout = 120' "$iscsiconf"` ] || \
-   [ `grep -q 'node.session.timeo.replacement_timeout = 15' "$iscsiconf"` ] || \
-   [ `grep -q 'node.conn\[0\].timeo.noop_out_interval = 5' "$iscsiconf"` ] || \
-   [ `grep -q 'node.conn\[0\].timeo.noop_out_timeout = 5' "$iscsiconf"` ]; then
+if `grep -q 'node.startup = manual' "$iscsiconf"` || \
+   `grep -q 'node.session.timeo.replacement_timeout = 120' "$iscsiconf"` || \
+   `grep -q 'node.session.timeo.replacement_timeout = 15' "$iscsiconf"` || \
+   `grep -q 'node.conn\[0\].timeo.noop_out_interval = 5' "$iscsiconf"` || \
+   `grep -q 'node.conn\[0\].timeo.noop_out_timeout = 5' "$iscsiconf"`; then
 		echo "updating iscsid.conf"
 		sed -i.bak 's/node.startup = manual/node.startup = automatic/g' /etc/iscsi/iscsid.conf
 		# Adjust timeout settings for decreased queue time during failover
