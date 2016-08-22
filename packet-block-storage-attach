@@ -97,7 +97,7 @@ if [ "$target" ] ; then
 fi
 
 function restart_iscsid {
-	if [[ -f /usr/bin/systemctl && `systemctl` =~ -\.mount ]]; then
+	if [[ `which systemctl` && `systemctl` =~ -\.mount ]]; then
 		[ $_V -eq 1 ] && echo "Restarting iscsid with systemctl"
 		systemctl restart iscsid &>/dev/null
 	elif [[ -f /etc/init.d/open-iscsi && ! -h /etc/init.d/open-iscsi ]]; then
