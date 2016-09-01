@@ -12,18 +12,6 @@ usage(){
 }
 
 # Get cli options
-#_V=0
-#while getopts "vhV:" OPTION
-#do
-#  case $OPTION in
-#    h) usage
-#       ;;
-#    v) _V=1
-#       ;;
-#  esac
-#done
-
-# Get cli options
 _V=0
 while getopts "m:vh" OPTION
 do
