@@ -111,7 +111,8 @@ function restart_iscsid {
                 if systemctl -q is-active open-iscsi; then
                         systemctl restart open-iscsi &>/dev/null
                 fi
-        elif [[ -f /etc/init.d/open-iscsi && ! -h /etc/init.d/open-iscsi ]]; then
+	fi
+        if [[ -f /etc/init.d/open-iscsi && ! -h /etc/init.d/open-iscsi ]]; then
                 [ $_V -eq 1 ] && echo "Restarting iscsid with sysv init"
                 /etc/init.d/open-iscsi restart &>/dev/null
         fi
