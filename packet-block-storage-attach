@@ -270,6 +270,9 @@ fi
 mpresult=`multipath -ll`
 [ $_V -eq 1 ] && echo "$mpresult"
 
+# Reload multipath's configuration to use user_friendly_names from the bindings file
+multipathd reconfigure
+
 # Check for block device(s)
 for (( volume=0; volume<$volumecnt; volume++ )); do
 	volname=`jq '.volumes['$volume'].name ' $LOCALMD | sed 's/"//g'`
