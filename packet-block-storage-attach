@@ -120,7 +120,7 @@ function restart_iscsid {
 
 # create the multipath config
 cat <<- EOF_mpconf > /etc/multipath.conf
-defaults {
+	defaults {
 
        polling_interval       3
        fast_io_fail_tmo 5
@@ -131,9 +131,9 @@ defaults {
        no_path_retry              $mpnpropt
        user_friendly_names     yes
 
-}
+	}
 
-blacklist {
+	blacklist {
          devnode "^(ram|raw|loop|fd|md|dm-|sr|scd|st)[0-9]*"
          devnode "^hd[a-z][[0-9]*]"
          devnode "^vd[a-z]"
@@ -153,9 +153,9 @@ blacklist {
                vendor  "DELL"
                product ".*"
          }
-}
+	}
 
-devices {
+	devices {
         device {
                 vendor "DATERA"
                 product "IBLOCK"
@@ -165,8 +165,13 @@ devices {
                 #prio_callout "/sbin/mpath_prio_alua /dev/%n"
                 hardware_handler "1 alua"
         }
-}
-EOF_mpconf
+	}
+	EOF_mpconf
+	
+# Reload multipath's configuration to use user_friendly_names from the bindings file for CoreOS
+if [ $(head -1 /etc/lsb-release) == "DISTRIB_ID=CoreOS" ]; then
+	multipathd reconfigure
+fi
 
 # Initiator check
 if [ ! `grep $initiator\$ /etc/iscsi/initiatorname.iscsi` ]; then
@@ -269,9 +274,6 @@ fi
 
 mpresult=`multipath -ll`
 [ $_V -eq 1 ] && echo "$mpresult"
-
-# Reload multipath's configuration to use user_friendly_names from the bindings file
-multipathd reconfigure
 
 # Check for block device(s)
 for (( volume=0; volume<$volumecnt; volume++ )); do
