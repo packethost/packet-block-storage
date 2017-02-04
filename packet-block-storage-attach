@@ -168,10 +168,6 @@ cat <<- EOF_mpconf > /etc/multipath.conf
 	}
 	EOF_mpconf
 	
-# Reload multipath's configuration to use user_friendly_names from the bindings file for CoreOS
-if [ $(head -1 /etc/lsb-release) == "DISTRIB_ID=CoreOS" ]; then
-	multipathd reconfigure
-fi
 
 # Initiator check
 if [ ! `grep $initiator\$ /etc/iscsi/initiatorname.iscsi` ]; then
@@ -274,6 +270,11 @@ fi
 
 mpresult=`multipath -ll`
 [ $_V -eq 1 ] && echo "$mpresult"
+
+# Reload multipath's configuration to use user_friendly_names from the bindings file for CoreOS
+if [ $(head -1 /etc/lsb-release) == "DISTRIB_ID=CoreOS" ]; then
+	multipathd reconfigure
+fi
 
 # Check for block device(s)
 for (( volume=0; volume<$volumecnt; volume++ )); do
