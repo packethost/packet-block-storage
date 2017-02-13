@@ -50,11 +50,15 @@ This utility/helper script is made available to assist in  the attachment and de
 5. Make a filesystem on the block device
 6. Mount the block device on the mount point of you choice
 
-Example:
+Example :
 
     [root@cent7-pbs-client dlaube]# packet-block-storage-attach
     Block device /dev/mapper/volume-9ab99df5 is available for use
     Block device /dev/mapper/volume-7eab8fc1 is available for use
+
+**IMPORTANT NOTE:** Consider using the "-m queue" flag when attaching storage to configure multipath queuing. If block storage becomes unreachable, the option "fail" results in FS read-only and "queue" will keep IO in memory buffer until reachable. See "-h" for usage details.
+
+
 
 **Detach a volume**
 
