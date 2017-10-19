@@ -26,7 +26,7 @@ This utility/helper script is made available to assist in  the attachment and de
 **Using git:**
 
     sudo su -
-    git clone git@github.com:promaethius/packet-block-storage.git
+    git clone git@github.com:packethost/packet-block-storage.git
     cp ./packet-block-storage/packet-block-storage-* /usr/bin/
     chmod u+x /usr/bin/packet-block-storage-*
 
@@ -35,8 +35,8 @@ This utility/helper script is made available to assist in  the attachment and de
 **Using wget**
 
     sudo su -
-    wget -O /usr/bin/packet-block-storage-attach https://raw.githubusercontent.com/promaethius/packet-block-storage/master/packet-block-storage-attach
-    wget -O /usr/bin/packet-block-storage-detach https://raw.githubusercontent.com/promaethius/packet-block-storage/master/packet-block-storage-detach
+    wget -O /usr/bin/packet-block-storage-attach https://raw.githubusercontent.com/packethost/packet-block-storage/master/packet-block-storage-attach
+    wget -O /usr/bin/packet-block-storage-detach https://raw.githubusercontent.com/packethost/packet-block-storage/master/packet-block-storage-detach
     chmod u+x /usr/bin/packet-block-storage-*
 
 ## Usage
