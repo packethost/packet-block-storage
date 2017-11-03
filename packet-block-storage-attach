@@ -34,12 +34,6 @@ if [[ -z "${mpnpropt}" ]]; then
 fi
 [ $_V -eq 1 ] && echo "Multipath no_path_retry feature option set as '$mpnpropt'"
 
-# Depends on jq
-if [ ! `which jq` ]; then
-	echo "JQ was not found. Installing..."
-	wget --quiet -O /bin/jq https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 && chmod +x /bin/jq
-fi
-
 # Check for deps
 for dep in iscsiadm multipath jq;
 do
