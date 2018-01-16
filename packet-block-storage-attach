@@ -37,7 +37,28 @@ fi
 # Depends on jq
 if [ ! `which jq` ]; then
 	echo "JQ was not found. Installing..."
-	wget --quiet -O /bin/jq https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 && chmod +x /bin/jq
+
+        if ! apt install -qy jq; then
+                jqtmp="$(mktemp)"
+                if [[ ! -f "$jqtmp" ]]; then
+                        echo "mktemp failed, bailing..." >&2
+                        exit 1
+                fi
+                jqurl="https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64"
+                jqsha="c6b3a7d7d3e7b70c6f51b706a3b90bd01833846c54d32ca32f0027f00226ff6d  $jqtmp"
+                if ! curl -sLo "$jqtmp" "$jqurl"; then
+                        echo "Download of jq failed. Cannot continue. Install jq by handle to continue" >&2
+                        exit 1
+                fi
+                if echo "$jqsha" | sha256sum -c; then
+                        chmod +x "$jqtmp"
+                        mv "$jqtmp" /bin/jq || exit 1
+                else
+                        rm "$jqtmp"
+                        echo "Download of jq was invalid. Cannot continue. Install jq by hand to continue" >&2
+                        exit 1
+                fi
+        fi
 fi
 
 # Check for deps
