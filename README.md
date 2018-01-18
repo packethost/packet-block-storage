@@ -14,12 +14,12 @@ This utility/helper script is made available to assist in  the attachment and de
 
 **Ubuntu/Debian**:
 
-    apt-get install open-iscsi multipath-tools
+    apt-get install open-iscsi multipath-tools jq
 
 
 **CentOS**:
 
-    yum -y install iscsi-initiator-utils device-mapper-multipath
+    yum -y install iscsi-initiator-utils device-mapper-multipath jq
 
 ## Installation
 
