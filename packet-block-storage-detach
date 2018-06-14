@@ -35,6 +35,12 @@ function detach_volume () {
 
   iqntarget="$1"
   volname="$2"
+  if grep $volname /proc/mounts &>/dev/null; then
+        wheremnt=$(grep $volname /proc/mounts | awk '{print $2}')
+        echo "Error: volume $volname is currently mounted on $wheremnt. Please unmount it first and try again."
+        exit 1
+  fi
+
 	for iqn in `iscsiadm -m session | awk {'print $4'}`; do
 		if [ "$iqntarget" = "$iqn" ] ; then
 			portal=`iscsiadm -m session | grep $iqn | awk {'print $3'} | egrep -o '([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}'`
