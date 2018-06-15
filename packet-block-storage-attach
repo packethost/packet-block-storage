@@ -272,10 +272,17 @@ mpresult=`multipath -ll`
 
 # Check for block device(s)
 for (( volume=0; volume<$volumecnt; volume++ )); do
-	volname=`jq '.volumes['$volume'].name ' $LOCALMD | sed 's/"//g'`
-	if [ -b /dev/mapper/$volname ]; then
-		echo "Block device /dev/mapper/$volname is available for use"
-	else
-		echo "Error: Block device /dev/mapper/$volname is NOT available for use"
-	fi
+        volname=`jq '.volumes['$volume'].name ' $LOCALMD | sed 's/"//g'`
+        thiswwid=$(grep $volname /etc/multipath/bindings | awk {'print $2'})
+        if [ -b /dev/mapper/$volname ]; then
+                echo "Block device /dev/mapper/$volname is available for use"
+        elif [ -b /dev/mapper/$thiswwid ]; then
+                echo "Found $volname as WWID $thiswwid. Reloading devmap..."
+                multipath -r
+                if [ -b /dev/mapper/$volname ]; then
+                        echo "Block device /dev/mapper/$volname is available for use"
+                fi
+        else
+                echo "Error: Block device /dev/mapper/$volname is NOT available for use"
+        fi
 done
