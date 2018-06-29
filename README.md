@@ -1,4 +1,6 @@
 # packet-block-storage
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fpackethost%2Fpacket-block-storage.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fpackethost%2Fpacket-block-storage?ref=badge_shield)
+
 
 ----
 ## Quick overview
@@ -70,3 +72,7 @@ Example:
 
     [root@cent7-pbs-client dlaube]# packet-block-storage-detach
 
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fpackethost%2Fpacket-block-storage.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fpackethost%2Fpacket-block-storage?ref=badge_large)
