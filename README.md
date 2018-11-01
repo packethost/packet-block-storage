@@ -4,7 +4,7 @@
 ## Quick overview
 This utility/helper script is made available to assist in  the attachment and detachment of Packet block storage volumes and is currently in testing. Use at your own risk and always have a backup/snapshot just in case!
 
-#Availability
+# Availability
 The packet-block storage helper scripts are pre-installed on the following Packet operating systems:
 * CentOS
 * Ubuntu
