@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Packet.net block storage auto-attach - dlaube
 
 set -e
@@ -6,29 +6,37 @@ set -e
 [ -n "$DEBUG" ] && set -x
 
 usage(){
-  echo "usage: $0 [-vhmn] [volume_name]"
+  echo "usage: $0 [-vhmnc] [volume_name]"
   echo "	-v		Make verbose"
   echo "	-h		Display help"
   echo "	-n		Do not try to attach any volumes; just ensure that iscsid and multipath are set up correctly"
+  echo "	-c		Do not start or restart multipathd or iscsid; just set up the correct configuration and ensure dependencies are installed"
   echo "	-m		Set multipath feature no_path_retry, ex: -m [<fail (default) | queue>]"
   echo "			If block storage is unreachable, the option "fail" results in FS read-only and "queue" will keep IO in memory buffer until reachable"
   echo "	volume_name	Specify the volume name to attach, eg: volume-f9a8a263"
   exit 1
 }
 
+hasSystemctl=
+set +e
+systemctl 2>/dev/null | grep -q '^\-\.mount'
+[ $? -eq 0 ] && hasSystemctl=1
+set -e
+
+
 restart_iscsid() {
-        if [[ `which systemctl` && `systemctl` =~ -\.mount ]]; then
+        if [ "$hasSystemctl" -eq 1 ]; then
                 [ $_V -eq 1 ] && echo "Restarting iscsid with systemctl"
                 systemctl restart iscsid &>/dev/null
                 if systemctl -q is-active open-iscsi; then
                         systemctl restart open-iscsi &>/dev/null
                 fi
 	# for alpine
-        elif [[ -f /etc/init.d/iscsid && ! -h /etc/init.d/iscsid ]]; then
+        elif [ -f /etc/init.d/iscsid -a ! -h /etc/init.d/iscsid ]; then
                 [ $_V -eq 1 ] && echo "Restarting iscsid with sysv init"
                 /etc/init.d/iscsid restart &>/dev/null
 	fi
-        if [[ -f /etc/init.d/open-iscsi && ! -h /etc/init.d/open-iscsi ]]; then
+        if [ -f /etc/init.d/open-iscsi -a ! -h /etc/init.d/open-iscsi ]; then
                 [ $_V -eq 1 ] && echo "Restarting iscsid with sysv init"
                 /etc/init.d/open-iscsi restart &>/dev/null
         fi
@@ -41,9 +49,10 @@ attach_volumes() {
 	if [ "$targetidx" ] ; then
 		attach_volume "$targetidx" "$metadatapath"
 	else
-		for (( idx=0; idx<$volumecnt; idx++ ))
-		do
+		idx=0
+		while [ $idx -lt $volumecnt ]; do
 			attach_volume "$idx" "$metadatapath"
+			idx=$(( $idx + 1 ))
 		done
 	fi
 }
@@ -172,23 +181,23 @@ enable_multipath() {
 	else
         	[ $_V -eq 1 ] && echo "Multipath module not yet loaded. Restarting service."
         	# Run multipath
-        	if [[ -f /usr/bin/systemctl && `systemctl` =~ -\.mount ]]; then
+        	if [ "$hasSystemctl" -eq 1 ]; then
                 	[ $_V -eq 1 ] && echo "Restarting multipath with systemctl"
 			modprobe dm_multipath
 			modprobe dm_round_robin
                 	systemctl restart multipathd
                 	systemctl enable multipathd
-        	elif [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
+        	elif [ -f /etc/init.d/multipath-tools -a ! -h /etc/init.d/multipath-tools ]; then
                 	[ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
                 	/etc/init.d/multipath-tools restart &>/dev/null
 		# for alpine linux
-        	elif [[ -f /etc/init.d/multipathd && ! -h /etc/init.d/multipathtd ]]; then
+        	elif [ -f /etc/init.d/multipathd -a ! -h /etc/init.d/multipathtd ]; then
                 	[ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
                 	/etc/init.d/multipathd restart &>/dev/null
         	fi
 
         	# Restart multipath with sysv init to fix ubuntu/deb
-        	if [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
+        	if [ -f /etc/init.d/multipath-tools -a ! -h /etc/init.d/multipath-tools ]; then
                 	[ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
                 	/etc/init.d/multipath-tools restart &>/dev/null
         	fi
@@ -265,11 +274,6 @@ validate_iscsi_config() {
 		sed -i.bak 's/node.session.timeo.replacement_timeout = 15/node.session.timeo.replacement_timeout = 5/g' $iscsiconf
 		sed -i.bak 's/node.conn\[0\].timeo.noop_out_interval = 5/node.conn\[0\].timeo.noop_out_interval = 3/g' $iscsiconf
 		sed -i.bak 's/node.conn\[0\].timeo.noop_out_timeout = 5/node.conn\[0\].timeo.noop_out_timeout = 3/g' $iscsiconf
-		# Restart iscsid since it will have old config values stored
-		echo "restarting iscsid"
-		restart_iscsid
-		sleep 2
-		multipath
 	fi
 }
 
@@ -279,10 +283,6 @@ update_initiator() {
 	if [ ! `grep $initiator\$ /etc/iscsi/initiatorname.iscsi` ]; then
 		[ $_V -eq 1 ] && echo "Initiator name mismatch! Updating from metadata..."
 		echo "InitiatorName=$initiator" > /etc/iscsi/initiatorname.iscsi
-		# Restart iscsid since it will have cached the previous initiator IQN
-		[ $_V -eq 1 ] && echo "restarting iscsid"
-		restart_iscsid
-		multipath
 	fi
 }
 
@@ -298,12 +298,15 @@ get_target_idx() {
   	fi
 
 	if [ "$target" ] ; then
-		for (( idx=0; idx<$volumecnt; idx++ )) ; do
+		idx=0
+		while [ $idx -lt $volumecnt ]; do
 			volname=`jq -r '.volumes['$idx'].name ' $metadatapath `
 			if [ "$volname" = "$target" ] ; then
 				targetidx=$idx
+				idx=$(( $idx + 1 ))
 				continue
 			fi
+			idx=$(( $idx + 1 ))
  	 	done
 
   		if [ ! "$targetidx" ] ; then
@@ -331,7 +334,8 @@ report_status() {
 	local volumecnt="$1"
 	local metadatapath="$2"
 
-	for (( volume=0; volume<$volumecnt; volume++ )); do
+	volume=0
+	while [ $volume -lt $volumecnt ]; do
        		volname=`jq -r '.volumes['$volume'].name ' $metadatapath`
         	thiswwid=$(grep $volname /etc/multipath/bindings | awk {'print $2'})
 	        if [ -b /dev/mapper/$volname ]; then
@@ -345,6 +349,7 @@ report_status() {
         	else
                 	echo "Error: Block device /dev/mapper/$volname is NOT available for use"
         	fi
+		volume=$(($volume + 1))
 	done
 }
 
@@ -352,14 +357,16 @@ report_status() {
 _V=0
 mpnpropt="fail" # multipath no_path_retry default
 noattach=0
+configonly=0
 
-while getopts "m:vhn" OPTION
+while getopts "m:vhnc" OPTION
 do
     case $OPTION in
         v) _V=1;;
         h) usage;;
 	m) mpnpropt="$OPTARG";;
         n) noattach=1;;
+        c) configonly=1;;
         *) exit 1;;
     esac
 done
@@ -372,7 +379,7 @@ fi
 [ $_V -eq 1 ] && echo "Multipath no_path_retry feature option set as '$mpnpropt'"
 
 ensure_deps
-enable_multipath
+[ $configonly -ne 1 ] && enable_multipath
 
 export LOCALMD=/tmp/metadata.tmp
 curl -sSL https://metadata.packet.net/metadata > $LOCALMD
@@ -389,6 +396,13 @@ fi
 create_multipath_config "$mpnpropt"
 update_initiator "$initiator"
 validate_iscsi_config
+# Restart iscsid since it will have old config and initiator values stored
+if [ $configonly -ne 1 ]; then
+	[ $_V -eq 1 ] && echo "restarting iscsid"
+	restart_iscsid
+	sleep 2
+	multipath
+fi
 
 # attach volumes - but only if noattach was not set
 [ $noattach -ne 1 ] && attach_volumes "$volumecnt" "$targetidx" "$LOCALMD"

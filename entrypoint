@@ -1,0 +1,26 @@
+#!/bin/sh
+
+# debug option
+[ -n "$DEBUG" ] && set -x
+
+# check for the module
+lsmod | grep -q '^dm_multipath'
+
+if [ $? -ne 0 ]; then
+  echo "dm_multipath module not loaded, loading it"
+  modprobe dm_multipath
+  if [ $? -ne 0 ]; then
+    echo "Failed to load dm_multipath module. Ensure this process has sufficient privileges, and that the correct module is available at /lib/modules/. Exiting..."
+    exit 1
+  fi
+  lsmod | grep -q '^dm_multipath'
+  if [ $? -ne 0 ]; then
+    echo "dm_multipath module still not loaded. It is a requirement for running packet csi. Please ensure it is available and either load it, or have its module available to this script or container at /lib/modules/. Exiting..."
+    exit 1
+  fi
+fi
+
+set -e
+/usr/local/bin/packet-block-storage-attach -c -n
+
+exec supervisord -f
