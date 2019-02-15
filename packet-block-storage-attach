@@ -1,110 +1,22 @@
 #!/bin/bash
 # Packet.net block storage auto-attach - dlaube
 
+set -e
+
+[ -n "$DEBUG" ] && set -x
+
 usage(){
-  echo "usage: $0 [-vhm] [volume_name]"
+  echo "usage: $0 [-vhmn] [volume_name]"
   echo "	-v		Make verbose"
   echo "	-h		Display help"
+  echo "	-n		Do not try to attach any volumes; just ensure that iscsid and multipath are set up correctly"
   echo "	-m		Set multipath feature no_path_retry, ex: -m [<fail (default) | queue>]"
   echo "			If block storage is unreachable, the option "fail" results in FS read-only and "queue" will keep IO in memory buffer until reachable"
   echo "	volume_name	Specify the volume name to attach, eg: volume-f9a8a263"
   exit 1
 }
 
-# Get cli options
-_V=0
-while getopts "m:vh" OPTION
-do
-    case $OPTION in
-        v) _V=1;;
-        h) usage;;
-	m) mpnpropt="$OPTARG";;
-        *) exit 1;;
-    esac
-done
-
-shift $(($OPTIND - 1))
-if [ $1 ] ; then
-	target=$1
-fi
-
-# Set multipath no_path_retry default if not set
-if [[ -z "${mpnpropt}" ]]; then
-	mpnpropt="fail"
-fi
-[ $_V -eq 1 ] && echo "Multipath no_path_retry feature option set as '$mpnpropt'"
-
-# Depends on jq
-if [ ! `which jq` ]; then
-	echo "JQ was not found. Installing..."
-	wget --quiet -O /bin/jq https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 && chmod +x /bin/jq
-fi
-
-# Check for deps
-for dep in iscsiadm multipath jq;
-do
-	if type $dep &>/dev/null; then
-		break
-	else
-		echo "Error: $dep not found. Please install it first."
-		exit 1
-	fi
-done
-
-# Check for multipath support
-lsmod | grep dm_multipath &>/dev/null
-if [ $? == 0 ]; then
-  [ $_V -eq 1 ] && echo "Multipath module is loaded."
-else
-        [ $_V -eq 1 ] && echo "Multipath module not yet loaded. Restarting service."
-        # Run multipath
-        if [[ -f /usr/bin/systemctl && `systemctl` =~ -\.mount ]]; then
-                [ $_V -eq 1 ] && echo "Restarting multipath with systemctl"
-		modprobe dm_multipath
-		modprobe dm_round_robin
-                systemctl restart multipathd
-                systemctl enable multipathd
-        elif [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
-                [ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
-                /etc/init.d/multipath-tools restart &>/dev/null
-        fi
-
-        # Restart multipath with sysv init to fix ubuntu/deb
-        if [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
-                [ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
-                /etc/init.d/multipath-tools restart &>/dev/null
-        fi
-fi
-
-export LOCALMD=/tmp/metadata.tmp
-curl -sSL https://metadata.packet.net/metadata > $LOCALMD
-volumecnt=`jq '.volumes[].iqn' $LOCALMD | wc -l`
-initiator=`jq '.iqn' $LOCALMD | sed 's/"//g'`
-
-# Check for volumes
-if [ $volumecnt -lt "1" ]; then
-	echo "Error: No volume(s) associated with this server. Have you attached a volume to this server via the Packet.net API/Portal?"
-	exit 1
-fi
-
-if [ "$target" ] ; then
-	for (( idx=0; idx<$volumecnt; idx++ )) ; do
-		volname=`jq '.volumes['$idx'].name ' $LOCALMD | sed 's/"//g'`
-		if [ "$volname" = "$target" ] ; then
-			targetidx=$idx
-			continue
-		fi
-  done
-
-  if [ "$targetidx" ] ; then
-		echo "target has been set to: $target"
-	else
-		echo "target not found, is it connected to this host? : $target"
-		exit 1
-	fi
-fi
-
-function restart_iscsid {
+restart_iscsid() {
         if [[ `which systemctl` && `systemctl` =~ -\.mount ]]; then
                 [ $_V -eq 1 ] && echo "Restarting iscsid with systemctl"
                 systemctl restart iscsid &>/dev/null
@@ -118,8 +30,120 @@ function restart_iscsid {
         fi
 }
 
-# create the multipath config
-cat <<- EOF_mpconf > /etc/multipath.conf
+attach_volumes() {
+	local volumecnt="$1"
+	local targetidx="$2"
+	local metadatapath="$3"
+	if [ "$targetidx" ] ; then
+		attach_volume "$targetidx" "$metadatapath"
+	else
+		for (( idx=0; idx<$volumecnt; idx++ ))
+		do
+			attach_volume "$idx" "$metadatapath"
+		done
+	fi
+}
+
+attach_volume() {
+  local volume="$1"
+  local metadatapath="$2"
+  if [ -z "$volume" ]; then
+    	echo "Error: no volume index passed to attach_volume () function"
+	exit 1
+  fi
+
+  [ $_V -eq 1 ] && echo "attaching volume index \"$volume\"."
+
+	iqn=`jq -r '.volumes['$volume'].iqn ' $metadatapath `
+	portals=`jq -r '.volumes['$volume'].ips[] ' $metadatapath `
+	volname=`jq -r '.volumes['$volume'].name ' $metadatapath `
+
+	for portal in ${portals[@]}; do
+		echo "portal: $portal iqn: $iqn"
+		# Discover
+		if iscsiadm --mode discovery --type sendtargets --portal $portal --discover &>/dev/null ; then
+			[ $_V -eq 1 ] && echo "Discovery success on $portal"
+		else
+			echo "Error: We couldn't discover targets on $portal"
+		fi
+
+		# Login and attach
+		if iscsiadm --mode node --targetname $iqn --portal $portal --login &>/dev/null ; then
+			[ $_V -eq 1 ] && echo "Logged in iqn $iqn"
+
+			sleep 3
+
+			bdname=`ls -l /dev/disk/by-path/ | grep "$iqn" | grep $portal | awk {'print $11'} | sed 's/..\/..\///'`
+			wwid=`/lib/udev/scsi_id -g -u -d /dev/$bdname`
+			[ $_V -eq 1 ] && echo "Block device $bdname aka $volname is mapped to $iqn with WWID $wwid"
+
+			[ $_V -eq 1 ] && echo "updating /etc/multipath/bindings with $volname $wwid"
+			if `grep -q "^$volname" /etc/multipath/bindings`; then
+				sed -i "s/^$volname .*/$volname $wwid/" /etc/multipath/bindings
+			else
+				echo "$volname $wwid" >> /etc/multipath/bindings
+			fi
+
+			multipath $volname
+		else
+			echo "Error: We couldn't log in iqn $iqn"
+		fi
+	done
+}
+
+ensure_deps() {
+	# Depends on jq
+	if [ ! `which jq` ]; then
+		echo "JQ was not found. Installing..."
+		wget --quiet -O /bin/jq https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 && chmod +x /bin/jq
+	fi
+
+	# Check for deps
+	for dep in iscsiadm multipath jq;
+	do
+		if type $dep &>/dev/null; then
+			break
+		else
+			echo "Error: $dep not found. Please install it first."
+			exit 1
+		fi
+	done
+}
+
+enable_multipath() {
+	# Check for multipath support
+	set +e
+	lsmod | grep -q dm_multipath
+	local found=$?
+	set -e
+	if [ $found -eq 0 ]; then
+  		[ $_V -eq 1 ] && echo "Multipath module is loaded."
+	else
+        	[ $_V -eq 1 ] && echo "Multipath module not yet loaded. Restarting service."
+        	# Run multipath
+        	if [[ -f /usr/bin/systemctl && `systemctl` =~ -\.mount ]]; then
+                	[ $_V -eq 1 ] && echo "Restarting multipath with systemctl"
+			modprobe dm_multipath
+			modprobe dm_round_robin
+                	systemctl restart multipathd
+                	systemctl enable multipathd
+        	elif [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
+                	[ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
+                	/etc/init.d/multipath-tools restart &>/dev/null
+        	fi
+
+        	# Restart multipath with sysv init to fix ubuntu/deb
+        	if [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
+                	[ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
+                	/etc/init.d/multipath-tools restart &>/dev/null
+        	fi
+	fi
+}
+
+create_multipath_config() {
+	local mpnpropt="$1"
+	# create the multipath config
+	cat <<- EOF_mpconf > /etc/multipath.conf
 defaults {
 
        polling_interval       3
@@ -167,122 +191,159 @@ devices {
         }
 }
 EOF_mpconf
+}
 
-# Initiator check
-if [ ! `grep $initiator\$ /etc/iscsi/initiatorname.iscsi` ]; then
-	[ $_V -eq 1 ] && echo "Initiator name mismatch! Updating from metadata..."
-	echo "InitiatorName=$initiator" > /etc/iscsi/initiatorname.iscsi
-	# Restart iscsid since it will have cached the previous initiator IQN
-	[ $_V -eq 1 ] && echo "restarting iscsid"
-	restart_iscsid
-  multipath
-fi
-
-# iscsid config check - fix for Ubuntu/Debian since they default to manual
-iscsiconf="/etc/iscsi/iscsid.conf"
-if `grep -q 'node.startup = manual' "$iscsiconf"` || \
-   `grep -q 'node.session.timeo.replacement_timeout = 120' "$iscsiconf"` || \
-   `grep -q 'node.session.timeo.replacement_timeout = 15' "$iscsiconf"` || \
-   `grep -q 'node.conn\[0\].timeo.noop_out_interval = 5' "$iscsiconf"` || \
-   `grep -q 'node.conn\[0\].timeo.noop_out_timeout = 5' "$iscsiconf"`; then
+validate_iscsi_config() {
+	# iscsid config check - fix for Ubuntu/Debian since they default to manual
+	iscsiconf="/etc/iscsi/iscsid.conf"
+	if `grep -q 'node.startup = manual' "$iscsiconf"` || \
+	   `grep -q 'node.session.timeo.replacement_timeout = 120' "$iscsiconf"` || \
+	   `grep -q 'node.session.timeo.replacement_timeout = 15' "$iscsiconf"` || \
+	   `grep -q 'node.conn\[0\].timeo.noop_out_interval = 5' "$iscsiconf"` || \
+	   `grep -q 'node.conn\[0\].timeo.noop_out_timeout = 5' "$iscsiconf"`; then
 		echo "updating iscsid.conf"
 		sed -i.bak 's/node.startup = manual/node.startup = automatic/g' /etc/iscsi/iscsid.conf
 		# Adjust timeout settings for decreased queue time during failover
 		# Adjust for Ubuntu/Debian specific defaults
-		sed -i.bak 's/node.session.timeo.replacement_timeout = 120/node.session.timeo.replacement_timeout = 5/g' /etc/iscsi/iscsid.conf
+		sed -i.bak 's/node.session.timeo.replacement_timeout = 120/node.session.timeo.replacement_timeout = 5/g' $iscsiconf
 		# Adjust for RHEL/CentOS specific defaults
-		sed -i.bak 's/node.session.timeo.replacement_timeout = 15/node.session.timeo.replacement_timeout = 5/g' /etc/iscsi/iscsid.conf
-		sed -i.bak 's/node.conn\[0\].timeo.noop_out_interval = 5/node.conn\[0\].timeo.noop_out_interval = 3/g' /etc/iscsi/iscsid.conf
-		sed -i.bak 's/node.conn\[0\].timeo.noop_out_timeout = 5/node.conn\[0\].timeo.noop_out_timeout = 3/g' /etc/iscsi/iscsid.conf
+		sed -i.bak 's/node.session.timeo.replacement_timeout = 15/node.session.timeo.replacement_timeout = 5/g' $iscsiconf
+		sed -i.bak 's/node.conn\[0\].timeo.noop_out_interval = 5/node.conn\[0\].timeo.noop_out_interval = 3/g' $iscsiconf
+		sed -i.bak 's/node.conn\[0\].timeo.noop_out_timeout = 5/node.conn\[0\].timeo.noop_out_timeout = 3/g' $iscsiconf
 		# Restart iscsid since it will have old config values stored
 		echo "restarting iscsid"
 		restart_iscsid
 		sleep 2
 		multipath
-fi
+	fi
+}
 
-function attach_volume () {
-  if [ -z "$1" ]
-  then
-    echo "Error: no volume index passed to attach_volume () function"
-		exit
-  fi
+update_initiator() {
+	# Initiator check
+	local initiator="$1"
+	if [ ! `grep $initiator\$ /etc/iscsi/initiatorname.iscsi` ]; then
+		[ $_V -eq 1 ] && echo "Initiator name mismatch! Updating from metadata..."
+		echo "InitiatorName=$initiator" > /etc/iscsi/initiatorname.iscsi
+		# Restart iscsid since it will have cached the previous initiator IQN
+		[ $_V -eq 1 ] && echo "restarting iscsid"
+		restart_iscsid
+		multipath
+	fi
+}
 
-  [ $_V -eq 1 ] && echo "attaching volume index \"$1\"."
-  volume="$1"
+get_target_idx() {
+	local target="$1"
+	local volumecnt="$2"
+	local metadatapath="$3"
+	local targetidx=
 
-	iqn=`jq '.volumes['$volume'].iqn ' $LOCALMD | sed 's/"//g'`
-	portals=`jq '.volumes['$volume'].ips ' $LOCALMD | egrep -o '([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}'`
-	volname=`jq '.volumes['$volume'].name ' $LOCALMD | sed 's/"//g'`
+	if [ $volumecnt -lt "1" ]; then
+		echo "Error: No volume(s) associated with this server. Have you attached a volume to this server via the Packet.net API/Portal?" >&2
+		exit 1
+  	fi
 
-	for portal in ${portals[@]}; do
-		echo "portal: $portal iqn: $iqn"
-		# Discover
-		if iscsiadm --mode discovery --type sendtargets --portal $portal --discover &>/dev/null ; then
-			[ $_V -eq 1 ] && echo "Discovery success on $portal"
-		else
-			echo "Error: We couldn't discover targets on $portal"
-		fi
-
-		# Login and attach
-		if iscsiadm --mode node --targetname $iqn --portal $portal --login &>/dev/null ; then
-			[ $_V -eq 1 ] && echo "Logged in iqn $iqn"
-
-			sleep 3
-
-			bdname=`ls -l /dev/disk/by-path/ | grep "$iqn" | grep $portal | awk {'print $11'} | sed 's/..\/..\///'`
-			wwid=`/lib/udev/scsi_id -g -u -d /dev/$bdname`
-			[ $_V -eq 1 ] && echo "Block device $bdname aka $volname is mapped to $iqn with WWID $wwid"
-
-			[ $_V -eq 1 ] && echo "updating /etc/multipath/bindings with $volname $wwid"
-			if `grep -q "^$volname" /etc/multipath/bindings`; then
-				sed -i "s/^$volname .*/$volname $wwid/" /etc/multipath/bindings
-			else
-				echo "$volname $wwid" >> /etc/multipath/bindings
+	if [ "$target" ] ; then
+		for (( idx=0; idx<$volumecnt; idx++ )) ; do
+			volname=`jq -r '.volumes['$idx'].name ' $metadatapath `
+			if [ "$volname" = "$target" ] ; then
+				targetidx=$idx
+				continue
 			fi
+ 	 	done
 
-			multipath $volname
-		else
-			echo "Error: We couldn't log in iqn $iqn"
+  		if [ ! "$targetidx" ] ; then
+			echo "target not found, is it connected to this host? : $target" >&2
+			exit 1
 		fi
+	fi
+	echo $targetidx
+}
+
+clean_mpath_bindings() {
+	# cleanup mpath entries in bindings file
+	sed -i "/^mpath.*/d" /etc/multipath/bindings
+	if `ls /dev/mapper/mpath* >/dev/null 2>/dev/null`; then
+		[ $_V -eq 1 ] && echo "mpath volume entries found, cleaning up"
+		for i in `ls /dev/mapper/mpath* | cut -d / -f4`; do
+				multipath -f $i
+		done
+		multipath
+	fi
+}
+
+report_status() {
+	# Check for block device(s)
+	local volumecnt="$1"
+	local metadatapath="$2"
+
+	for (( volume=0; volume<$volumecnt; volume++ )); do
+       		volname=`jq -r '.volumes['$volume'].name ' $metadatapath`
+        	thiswwid=$(grep $volname /etc/multipath/bindings | awk {'print $2'})
+	        if [ -b /dev/mapper/$volname ]; then
+       	        	echo "Block device /dev/mapper/$volname is available for use"
+        	elif [ -b /dev/mapper/$thiswwid ]; then
+                	echo "Found $volname as WWID $thiswwid. Reloading devmap..."
+                	multipath -r
+                	if [ -b /dev/mapper/$volname ]; then
+                        	echo "Block device /dev/mapper/$volname is available for use"
+                	fi
+        	else
+                	echo "Error: Block device /dev/mapper/$volname is NOT available for use"
+        	fi
 	done
 }
 
-if [ "$targetidx" ] ; then
-	attach_volume $targetidx
-else
-	for (( idx=0; idx<$volumecnt; idx++ ))
-	do
-		attach_volume $idx
-	done
-fi
+# Get cli options after setting defaults
+_V=0
+mpnpropt="fail" # multipath no_path_retry default
+noattach=0
 
-# cleanup mpath entries in bindings file
-sed -i "/^mpath.*/d" /etc/multipath/bindings
-if `ls /dev/mapper/mpath* >/dev/null 2>/dev/null`; then
-  [ $_V -eq 1 ] && echo "mpath volume entries found, cleaning up"
-  for i in `ls /dev/mapper/mpath* | cut -d / -f4`; do
-    multipath -f $i
-  done
-  multipath
-fi
-
-mpresult=`multipath -ll`
-[ $_V -eq 1 ] && echo "$mpresult"
-
-# Check for block device(s)
-for (( volume=0; volume<$volumecnt; volume++ )); do
-        volname=`jq '.volumes['$volume'].name ' $LOCALMD | sed 's/"//g'`
-        thiswwid=$(grep $volname /etc/multipath/bindings | awk {'print $2'})
-        if [ -b /dev/mapper/$volname ]; then
-                echo "Block device /dev/mapper/$volname is available for use"
-        elif [ -b /dev/mapper/$thiswwid ]; then
-                echo "Found $volname as WWID $thiswwid. Reloading devmap..."
-                multipath -r
-                if [ -b /dev/mapper/$volname ]; then
-                        echo "Block device /dev/mapper/$volname is available for use"
-                fi
-        else
-                echo "Error: Block device /dev/mapper/$volname is NOT available for use"
-        fi
+while getopts "m:vhn" OPTION
+do
+    case $OPTION in
+        v) _V=1;;
+        h) usage;;
+	m) mpnpropt="$OPTARG";;
+        n) noattach=1;;
+        *) exit 1;;
+    esac
 done
+
+shift $(($OPTIND - 1))
+if [ $1 ] ; then
+	target=$1
+fi
+
+[ $_V -eq 1 ] && echo "Multipath no_path_retry feature option set as '$mpnpropt'"
+
+ensure_deps
+enable_multipath
+
+export LOCALMD=/tmp/metadata.tmp
+curl -sSL https://metadata.packet.net/metadata > $LOCALMD
+volumecnt=`jq '.volumes | length' $LOCALMD`
+initiator=`jq -r '.iqn' $LOCALMD`
+targetidx=
+
+# Check for volumes - but only if noattach was not set
+if [ $noattach -ne 1 ]; then
+	targetidx=$(get_target_idx "$target" "$volumecnt" "$LOCALMD")
+	[ "$targetidx" ] && echo "target has been set to: $target , index $targetidx"
+fi
+
+create_multipath_config "$mpnpropt"
+update_initiator "$initiator"
+validate_iscsi_config
+
+# attach volumes - but only if noattach was not set
+[ $noattach -ne 1 ] && attach_volumes "$volumecnt" "$targetidx" "$LOCALMD"
+
+clean_mpath_bindings
+
+# output the paths when in verbose mode
+[ $_V -eq 1 ] && multipath -ll
+
+[ $noattach -ne 1 ] && report_status "$volumecnt" "$LOCALMD"
+
+exit 0
+
