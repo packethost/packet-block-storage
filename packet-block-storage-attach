@@ -23,6 +23,10 @@ restart_iscsid() {
                 if systemctl -q is-active open-iscsi; then
                         systemctl restart open-iscsi &>/dev/null
                 fi
+	# for alpine
+        elif [[ -f /etc/init.d/iscsid && ! -h /etc/init.d/iscsid ]]; then
+                [ $_V -eq 1 ] && echo "Restarting iscsid with sysv init"
+                /etc/init.d/iscsid restart &>/dev/null
 	fi
         if [[ -f /etc/init.d/open-iscsi && ! -h /etc/init.d/open-iscsi ]]; then
                 [ $_V -eq 1 ] && echo "Restarting iscsid with sysv init"
@@ -91,23 +95,70 @@ attach_volume() {
 	done
 }
 
+# install the right package for the given package manager
+# arg order: apt (debian/ubuntu), yum (centos/rhel), apk (alpine)
+install_package() {
+	local ranonce="$1"
+	local apt="$2"
+	local yum="$3"
+	local apk="$4"
+	local install_command=""
+	local update_command=""
+	local pkgs=""
+	local dep=""
+
+	if type apt &>/dev/null; then
+		install_command="apt install -y"
+		update_command="apt-get update -y"
+		pkgs="$apt"
+        elif type yum &>/dev/null; then
+		install_command="yum install -y"
+		update_command="yum makecache fast"
+		pkgs="$yum"
+        elif type apk &>/dev/null; then
+		install_command="apk add"
+		update_command="apk update"
+		pkgs="$apk"
+        else
+		echo "Unknown packaging system. Exiting." >&2
+		exit 1
+        fi
+
+	# if necessary, update package system cache
+	if [ -z "$ranonce" ]; then
+		$update_command
+	fi	
+	for dep in $pkgs; do
+		$install_command $dep
+	done
+}
+
 ensure_deps() {
-	# Depends on jq
+	# Check for deps - check each one independently, because each has its own unique package name
+	
+	# track if we have run update or not
+	local ranonce=""
+	# jq
 	if [ ! `which jq` ]; then
 		echo "JQ was not found. Installing..."
-		wget --quiet -O /bin/jq https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 && chmod +x /bin/jq
+		# jq requires epel first
+		install_package "$ranonce" jq "epel-release jq" jq
+		ranonce="true"
 	fi
 
-	# Check for deps
-	for dep in iscsiadm multipath jq;
-	do
-		if type $dep &>/dev/null; then
-			break
-		else
-			echo "Error: $dep not found. Please install it first."
-			exit 1
-		fi
-	done
+	# iscsi requirements
+	if [ ! `which iscsiadm` ]; then
+		echo "iscsi was not found. Installing..."
+		install_package "$ranonce" open-iscsi iscsi-initiator-utils open-iscsi
+		ranonce="true"
+	fi
+
+	# multipath
+	if [ ! `which multipath` ]; then
+		echo "multipath was not found. Installing..."
+		install_package "$ranonce" multipath-tools device-mapper-multipath multipath-tools
+		ranonce="true"
+	fi
 }
 
 enable_multipath() {
@@ -130,6 +181,10 @@ enable_multipath() {
         	elif [[ -f /etc/init.d/multipath-tools && ! -h /etc/init.d/multipath-tools ]]; then
                 	[ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
                 	/etc/init.d/multipath-tools restart &>/dev/null
+		# for alpine linux
+        	elif [[ -f /etc/init.d/multipathd && ! -h /etc/init.d/multipathtd ]]; then
+                	[ $_V -eq 1 ] && echo "Restarting multipath with sysv init"
+                	/etc/init.d/multipathd restart &>/dev/null
         	fi
 
         	# Restart multipath with sysv init to fix ubuntu/deb
