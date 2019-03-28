@@ -188,6 +188,7 @@ enable_multipath() {
 	set -e
 	if [ $found -eq 0 ]; then
   		[ $_V -eq 1 ] && echo "Multipath module is loaded."
+  		return 0
 	else
         	[ $_V -eq 1 ] && echo "Multipath module not yet loaded. Restarting service."
         	# Run multipath
