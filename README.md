@@ -1,5 +1,9 @@
 # packet-block-storage
 
+![](https://img.shields.io/badge/Stability-Experimental-red.svg)
+
+This repository is [Experimental](https://github.com/packethost/standards/blob/master/experimental-statement.md) meaning that it's based on untested ideas or techniques and not yet established or finalized or involves a radically new and innovative style! This means that support is best effort (at best!) and we strongly encourage you to NOT use this in production.
+
 ----
 ## Quick overview
 This utility/helper script is made available to assist in  the attachment and detachment of Packet block storage volumes and is currently in testing. Use at your own risk and always have a backup/snapshot just in case!
