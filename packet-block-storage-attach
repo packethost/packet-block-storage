@@ -230,6 +230,7 @@ defaults {
        failback                    immediate
        no_path_retry              $mpnpropt
        user_friendly_names     yes
+       deferred_remove         yes
 
 }
 
